@@ -1,0 +1,21 @@
+{
+  "uuid": "81e0f478-af02-440e-9363-6cf917d79816",
+  "shortName": "spirograph",
+  "longName": "spirograph",
+  "companyName": "Matthew Hungerford",
+  "versionCode": "1",
+  "versionLabel": "1.0",
+  "watchapp": {
+    "watchface": false
+  },
+  "appKeys": {
+    "dummy": 0
+  },
+  "resources": {
+    "media": []
+  },
+  "targetPlatforms": [
+    "basalt"
+  ],
+  "sdkVersion": "3"
+}

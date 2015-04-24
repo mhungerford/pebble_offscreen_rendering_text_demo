@@ -18,13 +18,13 @@ typedef struct Pattern {
 } Pattern;
 
 Pattern patterns[]= {
-  //{95, 55, 42},
-  {25, 55, 25},  // like a rose?
-  //{15, 55, 45},  // seashell
-  //{35, 55, 35},  // very cool 
-  //{95, 55, 12},
-  //{65, -15, 24},
-  //{65, 15, 24},
+  {65, 15, 24},  // big lobes
+  {95, 55, 12},  // ball
+  {65, -15, 24}, // offscreen
+  {95, 55, 42},  // offspiral
+  {15, 55, 45},  // tight ball
+  {25, 55, 25},  // lopsided ball
+  {35, 55, 35},  // very cool 
 };
 
 GColor background_colors[] = {
@@ -37,7 +37,7 @@ GColor background_colors[] = {
 };
 
 bool draw_spirograph(GContext* ctx, int x, int y, int outer, int inner, int dist) {
-  int t = 144 / 2; // (width / 2)
+  //int t = 144 / 2; // (width / 2)
 
   static GPoint point = {0,0};
   static GPoint first_point = {0,0};
@@ -100,11 +100,9 @@ static void update_display(Layer* layer, GContext *ctx) {
   // Always set composite mode for window before drawing
   // acts as an accumulation buffer for drawing over time
   window_set_background_color(window_stack_get_top_window(), GColorClear);
-
   static int idx = 0;
-  int num_patterns = 2;//sizeof(patterns) / sizeof(Pattern);
+  int num_patterns = sizeof(patterns) / sizeof(Pattern);
 
-  //idx = 0; // HACK
   retval = draw_spirograph(ctx, 72, 84, 
       patterns[idx].R, patterns[idx].r, patterns[idx].d);
 
@@ -113,7 +111,10 @@ static void update_display(Layer* layer, GContext *ctx) {
     window_set_background_color(window_stack_get_top_window(), 
         background_colors[rand() % (sizeof(background_colors) / sizeof(GColor))]);
     //change the pattern randomly
-    idx = rand() % num_patterns;
+    //while (last_idx == idx) {
+    //  idx = rand() % num_patterns;
+    //}
+    idx = (idx + 1) % num_patterns;
   }
 }
 

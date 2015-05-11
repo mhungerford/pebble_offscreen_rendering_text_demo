@@ -441,7 +441,7 @@ static void window_unload(Window *window) {
 static void init(void) {
   light_enable(true);
   window = window_create();
-  window_set_fullscreen(window, true);
+  //window_set_fullscreen(window, true);
   window_set_background_color(window, GColorBlack);
   window_set_window_handlers(window, (WindowHandlers) {
       .load = window_load,

@@ -6,7 +6,7 @@
   "versionCode": "1",
   "versionLabel": "1.0",
   "watchapp": {
-    "watchface": false
+    "watchface": true
   },
   "appKeys": {
     "dummy": 0
@@ -30,9 +30,20 @@
       }, 
       {
         "type": "font", 
-        "characterRegex": "[ /0-9MTWFSadehinortu]", 
-        "name": "FONT_BOXY_OUTLINE_18", 
-        "file": "Boxy_Outline.ttf"
+        "characterRegex": "[ :0-9]", 
+        "name": "FONT_LCD_24", 
+        "file": "LiquidCrystal-Bold.ttf"
+      }, 
+      {
+        "type": "font", 
+        "characterRegex": "[ 0-9MTWFSADEHINORU]", 
+        "name": "FONT_LCD_20", 
+        "file": "LiquidCrystal-Bold.ttf"
+      }, 
+      {
+        "type": "png", 
+        "name": "MASK", 
+        "file": "mask_2x2.png"
       }
     ]
   },

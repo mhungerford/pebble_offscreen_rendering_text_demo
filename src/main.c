@@ -8,12 +8,25 @@
   #define CONST_PI M_PI
 #endif
 
+static Window *window;
+static BitmapLayer *render_layer = NULL;
+static GBitmap *bitmap = NULL;
 
 
-//Time Display
+GFont *lcd_date_font = NULL;
+GFont *lcd_time_font = NULL;
+GBitmap *mask = NULL;
+
+//Digital Time Display
 char time_string[] = "00:00";  // Make this longer to show AM/PM
-TextLayer* time_outline_layer = NULL;
-TextLayer* time_text_layer = NULL;
+Layer *digital_layer = NULL;
+
+//Digital Date Display
+char date_wday_string[] = "WED";
+char date_mday_string[] = "30";
+Layer *date_layer = NULL;
+static const char *const dname[7] =
+{"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 
 static GPath *minute_arrow;
 static GPath *minute_fill;
@@ -113,6 +126,60 @@ static const GPathInfo TICK_POINTS = {4, (GPoint []) {
 
 // local prototypes
 static void draw_ticks(Layer *layer, GContext *ctx);
+
+static void digital_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_context_set_compositing_mode(ctx, GCompOpSet);
+
+  GPoint box_point = grect_center_point(&bounds);
+
+  // Size box to width of wday
+  GSize box_size = graphics_text_layout_get_content_size(
+      time_string, lcd_time_font, bounds,
+      GTextOverflowModeWordWrap, GTextAlignmentCenter);
+  box_size.w += 2; // Padding
+
+  graphics_draw_bitmap_in_rect(ctx, mask, 
+      GRect(box_point.x - box_size.w / 2, bounds.origin.y, box_size.w, bounds.size.h));
+
+  graphics_context_set_text_color(ctx, GColorCyan);
+  graphics_draw_text(ctx, time_string, lcd_time_font, 
+      GRect( 
+        bounds.origin.x + 2, bounds.origin.y - 2,
+        bounds.size.w, bounds.size.h - 2),
+      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+}
+
+static void date_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_context_set_compositing_mode(ctx, GCompOpSet);
+
+  GPoint box_point = grect_center_point(&bounds);
+
+  // Size box to width of wday
+  GSize box_size = graphics_text_layout_get_content_size(
+      date_wday_string, lcd_date_font, bounds,
+      GTextOverflowModeWordWrap, GTextAlignmentCenter);
+  box_size.w += 4; // Padding
+
+  graphics_draw_bitmap_in_rect(ctx, mask, 
+      GRect(box_point.x - box_size.w / 2, bounds.origin.y, box_size.w, bounds.size.h));
+
+  graphics_context_set_text_color(ctx, GColorCyan);
+  graphics_draw_text(ctx, date_wday_string, lcd_date_font,
+      GRect( 
+        bounds.origin.x + 2, bounds.origin.y - 2,
+        bounds.size.w, bounds.size.h),
+      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+
+  graphics_draw_text(ctx, date_mday_string, lcd_date_font,
+      GRect( 
+        bounds.origin.x + 2, bounds.origin.y + 20 - 2,
+        bounds.size.w, bounds.size.h),
+      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+}
 
 static void analog_update_proc(Layer *layer, GContext *ctx) {
   time_t now = time(NULL);
@@ -214,9 +281,6 @@ void tick_init(Window* window) {
   GRect bounds = layer_get_bounds(window_layer);
   const GPoint center = grect_center_point(&bounds);
 
-  layer_set_hidden(text_layer_get_layer(time_outline_layer), true);
-  layer_set_hidden(text_layer_get_layer(time_text_layer), true);
-
   tick_setup(&tick_path_1, center, 1);
   tick_setup(&tick_path_3, center, 3);
   tick_setup(&tick_path_5, center, 5);
@@ -263,9 +327,19 @@ void analog_destroy(void) {
 }
 
 void tick_handler(struct tm *tick_time, TimeUnits units_changed){
+  if (units_changed & DAY_UNIT) {
+    time_t current_time = time(NULL);
+    struct tm *current_tm = localtime(&current_time);
+    snprintf(date_wday_string, sizeof(date_wday_string), "%s", dname[current_tm->tm_wday]);
+    snprintf(date_mday_string, sizeof(date_mday_string), "%d", current_tm->tm_mday);
+    layer_mark_dirty(date_layer);
+  }
   clock_copy_time_string(time_string,sizeof(time_string));
-  layer_mark_dirty(text_layer_get_layer(time_outline_layer));
-  layer_mark_dirty(text_layer_get_layer(time_text_layer));
+  // Remove the space on the end of the string in AM/PM mode
+  if (strchr(time_string, ' ')) {
+    time_string[strlen(time_string) - 1] = '\0';
+  }
+  layer_mark_dirty(digital_layer);
 }
 
 
@@ -355,72 +429,90 @@ bool draw_spirograph(GContext* ctx, int x, int y, int outer, int inner, int dist
   return true;
 }
 
+// GBitmap and GContext are opaque types, so provide just enough here to allow
+// offscreen rendering into a bitmap
+typedef struct MyGBitmap {
+  void *addr;
+} MyGBitmap;
+
+typedef struct MyGContext {
+  MyGBitmap dest_bitmap;
+} MyGContext;
+
 static void update_display(Layer* layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
   bool retval = true;
-  // Always set composite mode for window before drawing
-  // acts as an accumulation buffer for drawing over time
-  window_set_background_color(window_stack_get_top_window(), GColorClear);
   static int idx = 0;
   int num_patterns = sizeof(patterns) / sizeof(Pattern);
 
+  graphics_context_set_compositing_mode(ctx, GCompOpAssign);
+
+  //backup old dest_bitmap addr
+  char *orig_addr = ((MyGContext*)ctx)->dest_bitmap.addr;
+
+  //replace screen bitmap with our offscreen render bitmap
+  ((MyGContext*)ctx)->dest_bitmap.addr = ((MyGBitmap*)bitmap)->addr;
+
   retval = draw_spirograph(ctx, 72, 84, 
       patterns[idx].R, patterns[idx].r, patterns[idx].d);
-
+  
   if (!retval) {
     //reset the background color
-    window_set_background_color(window_stack_get_top_window(), 
+    //window_set_background_color(window_stack_get_top_window(), 
+    //    background_colors[rand() % (sizeof(background_colors) / sizeof(GColor))]);
+    graphics_context_set_fill_color(ctx, 
         background_colors[rand() % (sizeof(background_colors) / sizeof(GColor))]);
+    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+
     //change the pattern randomly
     //while (last_idx == idx) {
     //  idx = rand() % num_patterns;
     //}
     idx = (idx + 1) % num_patterns;
   }
-}
 
-static Window *window;
-static Layer *render_layer;
+  //restore original context bitmap
+  ((MyGContext*)ctx)->dest_bitmap.addr = orig_addr;
+
+  //draw the bitmap to the screen
+  graphics_draw_bitmap_in_rect(ctx, bitmap, bounds);
+}
 
 static void register_timer(void* data) {
   app_timer_register(50, register_timer, data);
-  layer_mark_dirty(render_layer);
+  layer_mark_dirty(bitmap_layer_get_layer(render_layer));
 }
 
 static void window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
 
-  render_layer = layer_create(bounds);
-  layer_set_update_proc(render_layer, update_display);
-  layer_add_child(window_layer, render_layer);
+  render_layer = bitmap_layer_create(bounds);
+  bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
+  bitmap_layer_set_bitmap(render_layer, bitmap);
+  layer_set_update_proc(bitmap_layer_get_layer(render_layer), update_display);
+  layer_add_child(window_layer, bitmap_layer_get_layer(render_layer));
   register_timer(NULL);
 
   custom_font_text = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_TEXT_20));
   custom_font_outline = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_OUTLINE_20));
+  mask = gbitmap_create_with_resource(RESOURCE_ID_MASK);
   
   //Add layers from back to front (background first)
 
-  //Setup the time outline display
-  time_outline_layer = text_layer_create(GRect(0, 12, 144, 30));
-  text_layer_set_text(time_outline_layer, time_string);
-	text_layer_set_font(time_outline_layer, fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_OUTLINE_20)));
-  text_layer_set_text_alignment(time_outline_layer, GTextAlignmentCenter);
-  text_layer_set_background_color(time_outline_layer, GColorClear);
-  text_layer_set_text_color(time_outline_layer, GColorBlack);
-  
-  //Add clock text second
-  layer_add_child(window_layer, text_layer_get_layer(time_outline_layer));
+  //Load the lcd font
+  lcd_time_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_LCD_24));
+  lcd_date_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_LCD_20));
 
-  //Setup the time display
-  time_text_layer = text_layer_create(GRect(0, 12, 144, 30));
-  text_layer_set_text(time_text_layer, time_string);
-	text_layer_set_font(time_text_layer, fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_TEXT_20)));
-  text_layer_set_text_alignment(time_text_layer, GTextAlignmentCenter);
-  text_layer_set_background_color(time_text_layer, GColorClear);
-  text_layer_set_text_color(time_text_layer, GColorWhite);
-  
-  //Add clock text second
-  layer_add_child(window_layer, text_layer_get_layer(time_text_layer));
+  //Setup background layer for digital time display
+  digital_layer = layer_create(GRect(74 - 32, 106, 32 * 2, 24));
+  layer_set_update_proc(digital_layer, digital_update_proc);
+  layer_add_child(window_layer, digital_layer);
+
+  //Setup background layer for digital date display
+  date_layer = layer_create(GRect(74 - 20, 28, 20 * 2, 40));
+  layer_set_update_proc(date_layer, date_update_proc);
+  layer_add_child(window_layer, date_layer);
 
   //Add analog hands
   analog_init(window);
@@ -428,7 +520,7 @@ static void window_load(Window *window) {
   //Force time update
   time_t current_time = time(NULL);
   struct tm *current_tm = localtime(&current_time);
-  tick_handler(current_tm, MINUTE_UNIT);
+  tick_handler(current_tm, MINUTE_UNIT | DAY_UNIT);
 
   //Setup tick time handler
   tick_timer_service_subscribe((MINUTE_UNIT), tick_handler);

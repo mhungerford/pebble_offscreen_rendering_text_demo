@@ -1,12 +1,6 @@
 #include <pebble.h>
 
-#define USE_FIXED_POINT 1
-
-#ifdef USE_FIXED_POINT
-  #include "math-sll.h"
-#else
-  #define CONST_PI M_PI
-#endif
+#include "fireworks.h"
 
 static Window *window;
 static BitmapLayer *render_layer = NULL;
@@ -342,93 +336,6 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed){
   layer_mark_dirty(digital_layer);
 }
 
-
-#define COLOR(x) {.argb=GColor ## x ## ARGB8}
-
-typedef struct Pattern {
-  int R;
-  int r;
-  int d;
-} Pattern;
-
-Pattern patterns[]= {
-  {65, 15, 24},  // big lobes
-  {95, 55, 12},  // ball
-  {65, -15, 24}, // offscreen
-  {95, 55, 42},  // offspiral
-  {15, 55, 45},  // tight ball
-  {25, 55, 25},  // lopsided ball
-  {35, 55, 35},  // very cool 
-};
-
-GColor background_colors[] = {
-  COLOR(Black), 
-  COLOR(Blue), 
-  COLOR(DukeBlue),
-  COLOR(OxfordBlue),
-  COLOR(DarkGreen),
-  COLOR(ImperialPurple),
-};
-
-bool draw_spirograph(GContext* ctx, int x, int y, int outer, int inner, int dist) {
-  //int t = 144 / 2; // (width / 2)
-
-  static GPoint point = {0,0};
-  static GPoint first_point = {0,0};
-  static GColor color;
-  graphics_context_set_stroke_color(ctx, color);
-  graphics_context_set_stroke_width(ctx, 3);
-  graphics_context_set_antialiased(ctx, true);
-
-  sll R = int2sll(outer);
-  sll r = int2sll(inner);
-  sll d = int2sll(dist);
-  sll q = sllsub(R, r);
-  sll xip = slldiv(CONST_PI, sllmul(CONST_2, sllexp(CONST_4))); // PI / 2e^4
-  sll R_pi = sllmul(R, CONST_PI);
-
-  static sll index = CONST_0;
-
-  int segments = 0;
-
-  while(index < R_pi) {
-    index = slladd(index, xip);
-    sll iq_over_r = slldiv(sllmul(index, q), r); // i * (q / r)
-    int xval = 
-      sll2int(sllmul(q, sllsin(index))) - sll2int(sllmul(d, sllsin(iq_over_r)));
-    int yval = 
-      sll2int(sllmul(q, sllcos(index))) + sll2int(sllmul(d, sllcos(iq_over_r)));
-
-    // If we are back to the starting point, quit
-    if (gpoint_equal(&(GPoint){xval, yval}, &first_point)) {
-      index = CONST_0;
-      point = GPointZero;
-      return false;
-    }
-
-    if (!gpoint_equal(&point, &GPointZero)) {
-      graphics_draw_line(ctx, (GPoint){point.x + x, point.y + y}, (GPoint){xval + x, yval + y});
-    } else {
-      first_point = (GPoint){xval, yval};
-    }
-
-    point = (GPoint){xval, yval};
-
-    if (segments++ >= 10) {
-      color.argb = (color.argb + 1 ) | 0xc0;
-      break;
-    }
-  }
-
-  if (index > R_pi) {
-    index = CONST_0;
-    point = GPointZero;
-    return false;
-  }
-
-  return true;
-}
-
 // GBitmap and GContext are opaque types, so provide just enough here to allow
 // offscreen rendering into a bitmap
 typedef struct MyGBitmap {
@@ -441,9 +348,9 @@ typedef struct MyGContext {
 
 static void update_display(Layer* layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
+  const GPoint center = grect_center_point(&bounds);
   bool retval = true;
   static int idx = 0;
-  int num_patterns = sizeof(patterns) / sizeof(Pattern);
 
   graphics_context_set_compositing_mode(ctx, GCompOpAssign);
 
@@ -453,24 +360,8 @@ static void update_display(Layer* layer, GContext *ctx) {
   //replace screen bitmap with our offscreen render bitmap
   ((MyGContext*)ctx)->dest_bitmap.addr = ((MyGBitmap*)bitmap)->addr;
 
-  retval = draw_spirograph(ctx, 72, 84, 
-      patterns[idx].R, patterns[idx].r, patterns[idx].d);
+  Firework_Update(ctx, bounds.size.w, bounds.size.h);
   
-  if (!retval) {
-    //reset the background color
-    //window_set_background_color(window_stack_get_top_window(), 
-    //    background_colors[rand() % (sizeof(background_colors) / sizeof(GColor))]);
-    graphics_context_set_fill_color(ctx, 
-        background_colors[rand() % (sizeof(background_colors) / sizeof(GColor))]);
-    graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-
-    //change the pattern randomly
-    //while (last_idx == idx) {
-    //  idx = rand() % num_patterns;
-    //}
-    idx = (idx + 1) % num_patterns;
-  }
-
   //restore original context bitmap
   ((MyGContext*)ctx)->dest_bitmap.addr = orig_addr;
 
@@ -478,21 +369,50 @@ static void update_display(Layer* layer, GContext *ctx) {
   graphics_draw_bitmap_in_rect(ctx, bitmap, bounds);
 }
 
+static bool looking = false;
 static void register_timer(void* data) {
-  app_timer_register(50, register_timer, data);
-  layer_mark_dirty(bitmap_layer_get_layer(render_layer));
+  if (looking) {
+    app_timer_register(50, register_timer, data);
+    layer_mark_dirty(bitmap_layer_get_layer(render_layer));
+  }
+}
+
+#define ACCEL_DEADZONE 100
+#define WITHIN(n, min, max) (((n)>=(min) && (n) <= (max)) ? true : false)
+
+void accel_handler(AccelData *data, uint32_t num_samples) {
+  for (uint32_t i = 0; i < num_samples; i++) {
+    if(
+        WITHIN(data[i].x, -400, 400) &&
+        WITHIN(data[i].y, -900, 0) &&
+        WITHIN(data[i].z, -1100, -300)) {
+      if (!looking) {
+        looking = true;
+        light_enable(true);
+        register_timer(NULL);
+      }
+      return;
+    }
+  }
+  looking = false;
+  light_enable(false);
 }
 
 static void window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
+  const GPoint center = grect_center_point(&bounds);
+  
+
+  // Setup render layer for fireworks
+  Firework_Initialize(bounds.size.w, bounds.size.h);
 
   render_layer = bitmap_layer_create(bounds);
   bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
   bitmap_layer_set_bitmap(render_layer, bitmap);
   layer_set_update_proc(bitmap_layer_get_layer(render_layer), update_display);
   layer_add_child(window_layer, bitmap_layer_get_layer(render_layer));
-  register_timer(NULL);
+  //register_timer(NULL);
 
   custom_font_text = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_TEXT_20));
   custom_font_outline = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_OUTLINE_20));
@@ -505,12 +425,12 @@ static void window_load(Window *window) {
   lcd_date_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_LCD_20));
 
   //Setup background layer for digital time display
-  digital_layer = layer_create(GRect(74 - 32, 106, 32 * 2, 24));
+  digital_layer = layer_create(GRect(center.x - 32, center.y + 22, 32 * 2, 24));
   layer_set_update_proc(digital_layer, digital_update_proc);
   layer_add_child(window_layer, digital_layer);
 
   //Setup background layer for digital date display
-  date_layer = layer_create(GRect(74 - 20, 28, 20 * 2, 40));
+  date_layer = layer_create(GRect(center.x - 20, center.y - 56, 20 * 2, 40));
   layer_set_update_proc(date_layer, date_update_proc);
   layer_add_child(window_layer, date_layer);
 
@@ -525,13 +445,18 @@ static void window_load(Window *window) {
   //Setup tick time handler
   tick_timer_service_subscribe((MINUTE_UNIT), tick_handler);
   
+  //Setup magic motion accel handler
+  accel_data_service_subscribe(5, accel_handler);
+  accel_service_set_sampling_rate(ACCEL_SAMPLING_10HZ);
+  //light_enable(true);
+  //looking = true;
+  //register_timer(NULL);
 }
 
 static void window_unload(Window *window) {
 }
 
 static void init(void) {
-  light_enable(true);
   window = window_create();
   //window_set_fullscreen(window, true);
   window_set_background_color(window, GColorBlack);

@@ -2,7 +2,10 @@
 
 #include "fireworks.h"
 
-static Window *window;
+static Window *my_window;
+
+// if user is looking at watch, start glance motion
+static bool looking = false;
 static BitmapLayer *render_layer = NULL;
 static GBitmap *bitmap = NULL;
 
@@ -350,7 +353,6 @@ static void update_display(Layer* layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   const GPoint center = grect_center_point(&bounds);
   bool retval = true;
-  static int idx = 0;
 
   graphics_context_set_compositing_mode(ctx, GCompOpAssign);
 
@@ -369,7 +371,10 @@ static void update_display(Layer* layer, GContext *ctx) {
   graphics_draw_bitmap_in_rect(ctx, bitmap, bounds);
 }
 
-static bool looking = false;
+static void glance_timer(void* data) {
+  looking = false;
+}
+
 static void register_timer(void* data) {
   if (looking) {
     app_timer_register(50, register_timer, data);
@@ -377,8 +382,17 @@ static void register_timer(void* data) {
   }
 }
 
+static void light_timer(void *data) {
+  if (looking) {
+    app_timer_register(2 * 1000, light_timer, data);
+    light_enable_interaction();
+  }
+}
+
 #define ACCEL_DEADZONE 100
 #define WITHIN(n, min, max) (((n)>=(min) && (n) <= (max)) ? true : false)
+
+static int unglanced = true;
 
 void accel_handler(AccelData *data, uint32_t num_samples) {
   for (uint32_t i = 0; i < num_samples; i++) {
@@ -386,16 +400,27 @@ void accel_handler(AccelData *data, uint32_t num_samples) {
         WITHIN(data[i].x, -400, 400) &&
         WITHIN(data[i].y, -900, 0) &&
         WITHIN(data[i].z, -1100, -300)) {
-      if (!looking) {
+      if (unglanced) {
+        unglanced = false;
         looking = true;
-        light_enable(true);
         register_timer(NULL);
+        // turn glancing off in 60 seconds
+        app_timer_register(60 * 1000, glance_timer, data);
+        light_timer(NULL);
       }
       return;
     }
   }
+  unglanced = true;
   looking = false;
-  light_enable(false);
+}
+
+void tap_handler(AccelAxisType axis, int32_t direction){
+  if(!looking) {
+    // force light to be off when we are not looking
+    // ie. save power if accidental flick angles
+    light_enable(false);
+  }
 }
 
 static void window_load(Window *window) {
@@ -435,7 +460,7 @@ static void window_load(Window *window) {
   layer_add_child(window_layer, date_layer);
 
   //Add analog hands
-  analog_init(window);
+  analog_init(my_window);
 
   //Force time update
   time_t current_time = time(NULL);
@@ -448,27 +473,34 @@ static void window_load(Window *window) {
   //Setup magic motion accel handler
   accel_data_service_subscribe(5, accel_handler);
   accel_service_set_sampling_rate(ACCEL_SAMPLING_10HZ);
+
   //light_enable(true);
   //looking = true;
   //register_timer(NULL);
+
+  //Setup tap service to avoid old flick to light behavior
+  accel_tap_service_subscribe(tap_handler);
 }
 
 static void window_unload(Window *window) {
+  //bitmap_layer_destroy(render_layer);
+  //gbitmap_destroy(bitmap);
+	//window_destroy(my_window);
 }
 
 static void init(void) {
-  window = window_create();
+  my_window = window_create();
   //window_set_fullscreen(window, true);
-  window_set_background_color(window, GColorBlack);
-  window_set_window_handlers(window, (WindowHandlers) {
+  window_set_background_color(my_window, GColorBlack);
+  window_set_window_handlers(my_window, (WindowHandlers) {
       .load = window_load,
       .unload = window_unload
       });
-  window_stack_push(window, true);
+  window_stack_push(my_window, false);
 }
 
 static void deinit(void) {
-  window_destroy(window);
+  //window_destroy(my_window);
 }
 
 int main(void) {

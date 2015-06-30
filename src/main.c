@@ -6,6 +6,7 @@ static Window *my_window;
 
 // if user is looking at watch, start glance motion
 static bool looking = false;
+static AppTimer *glancing_timer_handle = NULL;
 static BitmapLayer *render_layer = NULL;
 static GBitmap *bitmap = NULL;
 
@@ -405,11 +406,14 @@ void accel_handler(AccelData *data, uint32_t num_samples) {
         looking = true;
         register_timer(NULL);
         // turn glancing off in 60 seconds
-        app_timer_register(60 * 1000, glance_timer, data);
+        glancing_timer_handle = app_timer_register(60 * 1000, glance_timer, data);
         light_timer(NULL);
       }
       return;
     }
+  }
+  if (glancing_timer_handle) {
+    app_timer_cancel(glancing_timer_handle);
   }
   unglanced = true;
   looking = false;

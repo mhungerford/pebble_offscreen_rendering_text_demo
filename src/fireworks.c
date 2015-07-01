@@ -9,7 +9,7 @@
   #define CONST_PI M_PI
 #endif
 
-#define FIREWORKS 6           // Number of fireworks
+#define FIREWORKS 4           // Number of fireworks
 #define FIREWORK_PARTICLES 32  // Number of particles per firework
 
 typedef struct FireworkStruct {
@@ -82,13 +82,13 @@ void graphics_darken(GContext* ctx) {
 sll rand_sll(sll max_val) {
   sll max_scale = int2sll(1000);
   int max_val_int = sll2int(sllmul(max_val, max_scale));
-  return slldiv(int2sll(rand() % max_val_int), max_scale);
+  return slldiv(int2sll(rand() % (max_val_int + 1)), max_scale);
 }
 
 void Firework_Start(FireworkStruct* firework) {
   // Pick an initial x location and  random x/y speeds
   sll xLoc = int2sll(10 + (rand() % (screen_width - 20)));
-  sll yLoc = int2sll(screen_height + 10); // start off the bottom of the screen
+  sll yLoc = int2sll(screen_height); // start at the bottom of the screen
   sll xSpeedVal = slladd(int2sll(-2), rand_sll(CONST_4));
   sll ySpeedVal = sllsub(Firework_baselineYSpeed, rand_sll(Firework_maxYSpeed));
 
@@ -100,12 +100,24 @@ void Firework_Start(FireworkStruct* firework) {
     firework->ySpeed[loop] = ySpeedVal;
   }
 
-  firework->red   = 85 + (rand() % 170);
-  firework->green = 85 + (rand() % 170);
-  firework->blue  = 85 + (rand() % 170);
+  // Max out at 170 for more vibrant colors
+  firework->red   = ((rand() % 4) * 85);
+  firework->green = ((rand() % 4) * 85);
+  firework->blue  = ((rand() % 4) * 85);
+  
+  // Instead of white, black or gray, do GColorFolly
+  if (firework->red == firework->green  && firework->green && firework->blue) {
+    firework->red = 255;
+    firework->blue = 85;
+  } else if (firework->red == 0 && firework->green == 0 && firework->blue == 85) {
+    // Oxford blue too dark, do Cyan
+    firework->green = 255;
+    firework->blue =  255;
+  }
+
   firework->alpha = CONST_1;
 
-  firework->framesUntilLaunch = (rand() % 400);
+  firework->framesUntilLaunch = (rand() % 100);
 
   firework->hasExploded = false;
 }
@@ -123,10 +135,10 @@ void Firework_Move(FireworkStruct* firework) {
 
   // Once a fireworks speed turns positive (i.e. at top of arc) - blow it up!
   if (firework->ySpeed[0] > CONST_0) {
-    for (int loop2 = 0; loop2 < FIREWORK_PARTICLES; loop2++) {
+    for (int loop = 0; loop < FIREWORK_PARTICLES; loop++) {
       // Set a random x and y speed beteen -4 and + 4
-      firework->xSpeed[loop2] = slladd(int2sll(-4), rand_sll(CONST_8));
-      firework->ySpeed[loop2] = slladd(int2sll(-4), rand_sll(CONST_8));
+      firework->xSpeed[loop] = slladd(int2sll(-4), rand_sll(CONST_8));
+      firework->ySpeed[loop] = slladd(int2sll(-4), rand_sll(CONST_8));
     }
 
     firework->hasExploded = true;
@@ -149,6 +161,9 @@ void Firework_Explode(FireworkStruct* firework) {
   // Fade out the particles (alpha is stored per firework, not per particle)
   if (firework->alpha > CONST_0) {
     firework->alpha = sllsub(firework->alpha, Firework_aDampen);
+    if (firework->alpha < CONST_0) {
+      firework->alpha = CONST_0;
+    }
   } else { // Once the alpha hits zero reset the firework
     Firework_Start(firework);
   }
@@ -184,28 +199,30 @@ void Firework_Update(GContext *ctx, int width, int height) {
           sll2int(sllmul(int2sll(firework->red), firework->alpha)),
           sll2int(sllmul(int2sll(firework->green), firework->alpha)),
           sll2int(sllmul(int2sll(firework->blue), firework->alpha)));
-    } else {
-      color = GColorFromRGB(255, 255, 0);
-    }
 
-    for (int p = 0; p < FIREWORK_PARTICLES; p++) {
-      graphics_context_set_stroke_color(ctx, color);
-      int xpos = sll2int(firework->x[p]);
-      int ypos = sll2int(firework->y[p]);
-      if (xpos < screen_width && ypos < screen_height) {
+      for (int p = 0; p < FIREWORK_PARTICLES; p++) {
+        graphics_context_set_stroke_color(ctx, color);
+        int xpos = sll2int(firework->x[p]);
+        int ypos = sll2int(firework->y[p]);
         graphics_draw_pixel_color(ctx, (GPoint){xpos, ypos}, color);
         graphics_draw_pixel_color(ctx, (GPoint){xpos + 1, ypos}, color);
         graphics_draw_pixel_color(ctx, (GPoint){xpos + 1, ypos + 1}, color);
         graphics_draw_pixel_color(ctx, (GPoint){xpos, ypos + 1}, color);
       }
-    }
-  }
 
-  for (int i = 0; i < FIREWORKS; i++) {
-    if (!prv_fireworks[i].hasExploded)
-      Firework_Move(&prv_fireworks[i]);
-    else
       Firework_Explode(&prv_fireworks[i]);
+    } else {
+      color = GColorFromRGB(255, 255, 0);
+      graphics_context_set_stroke_color(ctx, color);
+      int xpos = sll2int(firework->x[0]);
+      int ypos = sll2int(firework->y[0]);
+      graphics_draw_pixel_color(ctx, (GPoint){xpos, ypos}, color);
+      graphics_draw_pixel_color(ctx, (GPoint){xpos + 1, ypos}, color);
+      graphics_draw_pixel_color(ctx, (GPoint){xpos + 1, ypos + 1}, color);
+      graphics_draw_pixel_color(ctx, (GPoint){xpos, ypos + 1}, color);
+
+      Firework_Move(&prv_fireworks[i]);
+    }
   }
 }
 

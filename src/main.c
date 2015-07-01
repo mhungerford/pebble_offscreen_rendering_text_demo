@@ -405,8 +405,8 @@ void accel_handler(AccelData *data, uint32_t num_samples) {
         unglanced = false;
         looking = true;
         register_timer(NULL);
-        // turn glancing off in 60 seconds
-        glancing_timer_handle = app_timer_register(60 * 1000, glance_timer, data);
+        // turn glancing off in 40 seconds
+        glancing_timer_handle = app_timer_register(40 * 1000, glance_timer, data);
         light_timer(NULL);
       }
       return;

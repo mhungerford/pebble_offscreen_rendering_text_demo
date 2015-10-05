@@ -1,15 +1,14 @@
 #include <pebble.h>
 
 #include "fireworks.h"
+#include "glancing_api.h"
 
 static Window *my_window;
 
-// if user is looking at watch, start glance motion
-static bool looking = false;
-static AppTimer *glancing_timer_handle = NULL;
+// if user is looking at watch (glancing), start animation
+static GlanceState glancing_state = GLANCING_INACTIVE;
 static BitmapLayer *render_layer = NULL;
 static GBitmap *render_bitmap = NULL;
-
 
 GFont lcd_date_font = NULL;
 GFont lcd_time_font = NULL;
@@ -340,61 +339,30 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed){
   layer_mark_dirty(digital_layer);
 }
 
-static void glance_timer(void* data) {
-  looking = false;
-}
-
-static void register_timer(void* data) {
-  if (looking) {
-    app_timer_register(50, register_timer, data);
+static void fireworks_timer(void* data) {
+  if (glancing_state == GLANCING_ACTIVE) {
+    app_timer_register(50, fireworks_timer, data);
     Firework_Update(render_bitmap);
     layer_mark_dirty(bitmap_layer_get_layer(render_layer));
   }
 }
 
-static void light_timer(void *data) {
-  if (looking) {
-    app_timer_register(2 * 1000, light_timer, data);
-    light_enable_interaction();
+static void glancing_callback(GlancingData *data) {
+  glancing_state = data->state;
+ 
+  switch (glancing_state) {
+    case GLANCING_ACTIVE:
+      // Start the fireworks animation
+      fireworks_timer(NULL);
+      break;
+    case GLANCING_TIMEDOUT:
+    case GLANCING_INACTIVE:
+    default:
+      // Do nothing, fireworks animation monitors glancing_state
+      break;
   }
 }
 
-#define ACCEL_DEADZONE 100
-#define WITHIN(n, min, max) (((n)>=(min) && (n) <= (max)) ? true : false)
-
-static int unglanced = true;
-
-void accel_handler(AccelData *data, uint32_t num_samples) {
-  for (uint32_t i = 0; i < num_samples; i++) {
-    if(
-        WITHIN(data[i].x, -400, 400) &&
-        WITHIN(data[i].y, -900, 0) &&
-        WITHIN(data[i].z, -1100, -300)) {
-      if (unglanced) {
-        unglanced = false;
-        looking = true;
-        register_timer(NULL);
-        // turn glancing off in 40 seconds
-        glancing_timer_handle = app_timer_register(40 * 1000, glance_timer, data);
-        light_timer(NULL);
-      }
-      return;
-    }
-  }
-  if (glancing_timer_handle) {
-    app_timer_cancel(glancing_timer_handle);
-  }
-  unglanced = true;
-  looking = false;
-}
-
-void tap_handler(AccelAxisType axis, int32_t direction){
-  if(!looking) {
-    // force light to be off when we are not looking
-    // ie. save power if accidental flick angles
-    light_enable(false);
-  }
-}
 
 static void window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
@@ -409,7 +377,6 @@ static void window_load(Window *window) {
   render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
   bitmap_layer_set_bitmap(render_layer, render_bitmap);
   layer_add_child(window_layer, bitmap_layer_get_layer(render_layer));
-  //register_timer(NULL);
 
   custom_font_text = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_TEXT_20));
   custom_font_outline = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_OUTLINE_20));
@@ -442,16 +409,8 @@ static void window_load(Window *window) {
   //Setup tick time handler
   tick_timer_service_subscribe((MINUTE_UNIT), tick_handler);
   
-  //Setup magic motion accel handler
-  accel_data_service_subscribe(5, accel_handler);
-  accel_service_set_sampling_rate(ACCEL_SAMPLING_10HZ);
-
-  //light_enable(true);
-  //looking = true;
-  //register_timer(NULL);
-
-  //Setup tap service to avoid old flick to light behavior
-  accel_tap_service_subscribe(tap_handler);
+  // Enable Glancing with 40 second timeout, takeover backlight
+  glancing_service_subscribe(40 * 1000, true, glancing_callback);
 }
 
 static void window_unload(Window *window) {
@@ -462,7 +421,6 @@ static void window_unload(Window *window) {
 
 static void init(void) {
   my_window = window_create();
-  //window_set_fullscreen(window, true);
   window_set_background_color(my_window, GColorBlack);
   window_set_window_handlers(my_window, (WindowHandlers) {
       .load = window_load,

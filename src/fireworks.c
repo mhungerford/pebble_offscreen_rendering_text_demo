@@ -1,5 +1,13 @@
 #include <pebble.h>
 
+// fireworks draws to the image buffer in a gbitmap so that it can use the alpha channel
+// in an alternative way.
+// Every 5 frames, the alpha channel is evaluated, lowered by 1 value, and any pixel
+// with an alpha of 0 is slowly darkened (lowering the brightest channel)
+// To make the darkening less abrupt, alternate pixels are evaluated and darkened.
+//
+// Fireworks particle effects based on :
+// http://r3dux.org/2010/10/how-to-create-a-simple-fireworks-effect-in-opengl-and-sdl/
 
 #define USE_FIXED_POINT 1
 
@@ -34,35 +42,27 @@ static sll Firework_maxYSpeed = 0;
 static sll Firework_xDampen = 0;
 static sll Firework_aDampen = 0;
 
-typedef struct MyGBitmap {
-  void *addr;
-  uint16_t row_size_bytes;
-  uint16_t info_flags;
-  GRect bounds;
-} MyGBitmap;
-
-typedef struct MyGContext {
-  MyGBitmap dest_bitmap;
-} MyGContext;
-
-
-void graphics_draw_pixel_color(GContext* ctx, GPoint point, GColor color) {
-  MyGBitmap *bitmap = &((MyGContext*)ctx)->dest_bitmap;
-  if (grect_contains_point(&bitmap->bounds, &point)) {
-    uint8_t *line = ((uint8_t*)bitmap->addr) + (bitmap->row_size_bytes * point.y);
+void graphics_draw_pixel_color(GBitmap *bitmap, GPoint point, GColor color) {
+  uint16_t row_size_bytes = gbitmap_get_bytes_per_row(bitmap);
+  uint8_t *imagebuffer = gbitmap_get_data(bitmap);
+  GRect bounds = gbitmap_get_bounds(bitmap);
+  if (grect_contains_point(&bounds, &point)) {
+    uint8_t *line = imagebuffer + (row_size_bytes * point.y);
     line[point.x] = color.argb;
   }
 }
 
-void graphics_darken(GContext* ctx) {
-  MyGBitmap *bitmap = &((MyGContext*)ctx)->dest_bitmap;
+void graphics_darken(GBitmap *bitmap) {
   static int count = 0;
   count = (count + 1) % 4;
+  uint16_t row_size_bytes = gbitmap_get_bytes_per_row(bitmap);
+  uint8_t *imagebuffer = gbitmap_get_data(bitmap);
+  GRect bounds = gbitmap_get_bounds(bitmap);
 
-  for (int y = bitmap->bounds.origin.y; y < bitmap->bounds.origin.y + bitmap->bounds.size.h; y++) {
-    for (int x = bitmap->bounds.origin.x; x < bitmap->bounds.origin.x + bitmap->bounds.size.w; x++) {
+  for (int y = bounds.origin.y; y < bounds.origin.y + bounds.size.h; y++) {
+    for (int x = bounds.origin.x; x < bounds.origin.x + bounds.size.w; x++) {
       if ((x + y) % 4 == count) {
-        uint8_t *line = ((uint8_t*)bitmap->addr) + (bitmap->row_size_bytes * y);
+        uint8_t *line = imagebuffer + (row_size_bytes * y);
         GColor pixel = (GColor)line[x];
         if (pixel.a > 0) {
           pixel.a--;
@@ -184,11 +184,11 @@ void Firework_Initialize(int width, int height) {
   }
 }
 
-void Firework_Update(GContext *ctx, int width, int height) {
+void Firework_Update(GBitmap *bitmap) {
   static int darken_count = 0;
   if (darken_count++ >= 4) {
     darken_count = 0;
-    graphics_darken(ctx);
+    graphics_darken(bitmap);
   }
   // Draw fireworks
   for (int i = 0; i < FIREWORKS; i++) {
@@ -201,29 +201,26 @@ void Firework_Update(GContext *ctx, int width, int height) {
           sll2int(sllmul(int2sll(firework->blue), firework->alpha)));
 
       for (int p = 0; p < FIREWORK_PARTICLES; p++) {
-        graphics_context_set_stroke_color(ctx, color);
         int xpos = sll2int(firework->x[p]);
         int ypos = sll2int(firework->y[p]);
-        graphics_draw_pixel_color(ctx, (GPoint){xpos, ypos}, color);
-        graphics_draw_pixel_color(ctx, (GPoint){xpos + 1, ypos}, color);
-        graphics_draw_pixel_color(ctx, (GPoint){xpos + 1, ypos + 1}, color);
-        graphics_draw_pixel_color(ctx, (GPoint){xpos, ypos + 1}, color);
+        graphics_draw_pixel_color(bitmap, (GPoint){xpos, ypos}, color);
+        graphics_draw_pixel_color(bitmap, (GPoint){xpos + 1, ypos}, color);
+        graphics_draw_pixel_color(bitmap, (GPoint){xpos + 1, ypos + 1}, color);
+        graphics_draw_pixel_color(bitmap, (GPoint){xpos, ypos + 1}, color);
       }
 
       Firework_Explode(&prv_fireworks[i]);
     } else {
       color = GColorFromRGB(255, 255, 0);
-      graphics_context_set_stroke_color(ctx, color);
       int xpos = sll2int(firework->x[0]);
       int ypos = sll2int(firework->y[0]);
-      graphics_draw_pixel_color(ctx, (GPoint){xpos, ypos}, color);
-      graphics_draw_pixel_color(ctx, (GPoint){xpos + 1, ypos}, color);
-      graphics_draw_pixel_color(ctx, (GPoint){xpos + 1, ypos + 1}, color);
-      graphics_draw_pixel_color(ctx, (GPoint){xpos, ypos + 1}, color);
+      graphics_draw_pixel_color(bitmap, (GPoint){xpos, ypos}, color);
+      graphics_draw_pixel_color(bitmap, (GPoint){xpos + 1, ypos}, color);
+      graphics_draw_pixel_color(bitmap, (GPoint){xpos + 1, ypos + 1}, color);
+      graphics_draw_pixel_color(bitmap, (GPoint){xpos, ypos + 1}, color);
 
       Firework_Move(&prv_fireworks[i]);
     }
   }
 }
-
 

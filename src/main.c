@@ -8,11 +8,11 @@ static Window *my_window;
 static bool looking = false;
 static AppTimer *glancing_timer_handle = NULL;
 static BitmapLayer *render_layer = NULL;
-static GBitmap *bitmap = NULL;
+static GBitmap *render_bitmap = NULL;
 
 
-GFont *lcd_date_font = NULL;
-GFont *lcd_time_font = NULL;
+GFont lcd_date_font = NULL;
+GFont lcd_time_font = NULL;
 GBitmap *mask = NULL;
 
 //Digital Time Display
@@ -59,8 +59,8 @@ static GPoint tick_point_12;
       (GPoint){CAT(tick_point_, hour).x - 16, CAT(tick_point_, hour).y - 10}, .size = {32,32}}, \
       GTextOverflowModeFill, GTextAlignmentCenter, NULL)
 
-static GFont *custom_font_text = NULL;
-static GFont *custom_font_outline = NULL;
+static GFont custom_font_text = NULL;
+static GFont custom_font_outline = NULL;
 
 static Layer *analog_layer;
 
@@ -340,38 +340,6 @@ void tick_handler(struct tm *tick_time, TimeUnits units_changed){
   layer_mark_dirty(digital_layer);
 }
 
-// GBitmap and GContext are opaque types, so provide just enough here to allow
-// offscreen rendering into a bitmap
-typedef struct MyGBitmap {
-  void *addr;
-} MyGBitmap;
-
-typedef struct MyGContext {
-  MyGBitmap dest_bitmap;
-} MyGContext;
-
-static void update_display(Layer* layer, GContext *ctx) {
-  GRect bounds = layer_get_bounds(layer);
-  const GPoint center = grect_center_point(&bounds);
-  bool retval = true;
-
-  graphics_context_set_compositing_mode(ctx, GCompOpAssign);
-
-  //backup old dest_bitmap addr
-  char *orig_addr = ((MyGContext*)ctx)->dest_bitmap.addr;
-
-  //replace screen bitmap with our offscreen render bitmap
-  ((MyGContext*)ctx)->dest_bitmap.addr = ((MyGBitmap*)bitmap)->addr;
-
-  Firework_Update(ctx, bounds.size.w, bounds.size.h);
-  
-  //restore original context bitmap
-  ((MyGContext*)ctx)->dest_bitmap.addr = orig_addr;
-
-  //draw the bitmap to the screen
-  graphics_draw_bitmap_in_rect(ctx, bitmap, bounds);
-}
-
 static void glance_timer(void* data) {
   looking = false;
 }
@@ -379,6 +347,7 @@ static void glance_timer(void* data) {
 static void register_timer(void* data) {
   if (looking) {
     app_timer_register(50, register_timer, data);
+    Firework_Update(render_bitmap);
     layer_mark_dirty(bitmap_layer_get_layer(render_layer));
   }
 }
@@ -437,9 +406,8 @@ static void window_load(Window *window) {
   Firework_Initialize(bounds.size.w, bounds.size.h);
 
   render_layer = bitmap_layer_create(bounds);
-  bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
-  bitmap_layer_set_bitmap(render_layer, bitmap);
-  layer_set_update_proc(bitmap_layer_get_layer(render_layer), update_display);
+  render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
+  bitmap_layer_set_bitmap(render_layer, render_bitmap);
   layer_add_child(window_layer, bitmap_layer_get_layer(render_layer));
   //register_timer(NULL);
 
@@ -488,7 +456,7 @@ static void window_load(Window *window) {
 
 static void window_unload(Window *window) {
   //bitmap_layer_destroy(render_layer);
-  //gbitmap_destroy(bitmap);
+  //gbitmap_destroy(render_bitmap);
 	//window_destroy(my_window);
 }
 

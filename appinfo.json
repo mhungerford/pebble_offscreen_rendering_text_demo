@@ -12,7 +12,7 @@
     "dummy": 0
   },
   "targetPlatforms": [
-    "basalt"
+    "chalk"
   ],
   "resources": {
     "media": [

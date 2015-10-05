@@ -1,21 +1,51 @@
 {
-  "uuid": "91e0f478-af02-440e-9363-6cf917d79816",
-  "shortName": "spiroapp",
-  "longName": "spiroapp",
+  "uuid": "13b4d4d3-4cb3-48c8-a580-7f7827565001",
+  "shortName": "Fireworks",
+  "longName": "Fireworks",
   "companyName": "Matthew Hungerford",
   "versionCode": "1",
-  "versionLabel": "1.0",
+  "versionLabel": "1.2",
   "watchapp": {
-    "watchface": false
+    "watchface": true
   },
   "appKeys": {
     "dummy": 0
   },
-  "resources": {
-    "media": []
-  },
   "targetPlatforms": [
     "basalt"
   ],
+  "resources": {
+    "media": [
+      {
+        "type": "font", 
+        "characterRegex": "[ :0-9]", 
+        "name": "FONT_BOXY_TEXT_20", 
+        "file": "Boxy_Text.ttf"
+      }, 
+      {
+        "type": "font", 
+        "characterRegex": "[ :0-9]", 
+        "name": "FONT_BOXY_OUTLINE_20", 
+        "file": "Boxy_Outline.ttf"
+      }, 
+      {
+        "type": "font", 
+        "characterRegex": "[ :0-9]", 
+        "name": "FONT_LCD_24", 
+        "file": "LiquidCrystal-Bold.ttf"
+      }, 
+      {
+        "type": "font", 
+        "characterRegex": "[ 0-9MTWFSADEHINORU]", 
+        "name": "FONT_LCD_20", 
+        "file": "LiquidCrystal-Bold.ttf"
+      }, 
+      {
+        "type": "png", 
+        "name": "MASK", 
+        "file": "mask_2x2.png"
+      }
+    ]
+  },
   "sdkVersion": "3"
 }

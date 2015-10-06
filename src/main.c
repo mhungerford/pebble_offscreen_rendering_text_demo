@@ -1,29 +1,12 @@
 #include <pebble.h>
 
-#include "fireworks.h"
-#include "glancing_api.h"
+#include "offscreen.h"
 
 static Window *my_window;
 
-// if user is looking at watch (glancing), start animation
-static GlanceState glancing_state = GLANCING_INACTIVE;
-static BitmapLayer *render_layer = NULL;
-static GBitmap *render_bitmap = NULL;
+static Layer *render_layer = NULL;
 
-GFont lcd_date_font = NULL;
-GFont lcd_time_font = NULL;
-GBitmap *mask = NULL;
-
-//Digital Time Display
-char time_string[] = "00:00";  // Make this longer to show AM/PM
-Layer *digital_layer = NULL;
-
-//Digital Date Display
-char date_wday_string[] = "WED";
-char date_mday_string[] = "30";
-Layer *date_layer = NULL;
-static const char *const dname[7] =
-{"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+static Layer *background_layer = NULL;
 
 static GPath *minute_arrow;
 static GPath *minute_fill;
@@ -123,60 +106,6 @@ static const GPathInfo TICK_POINTS = {4, (GPoint []) {
 
 // local prototypes
 static void draw_ticks(Layer *layer, GContext *ctx);
-
-static void digital_update_proc(Layer *layer, GContext *ctx) {
-  GRect bounds = layer_get_bounds(layer);
-  graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_context_set_compositing_mode(ctx, GCompOpSet);
-
-  GPoint box_point = grect_center_point(&bounds);
-
-  // Size box to width of wday
-  GSize box_size = graphics_text_layout_get_content_size(
-      time_string, lcd_time_font, bounds,
-      GTextOverflowModeWordWrap, GTextAlignmentCenter);
-  box_size.w += 2; // Padding
-
-  graphics_draw_bitmap_in_rect(ctx, mask, 
-      GRect(box_point.x - box_size.w / 2, bounds.origin.y, box_size.w, bounds.size.h));
-
-  graphics_context_set_text_color(ctx, GColorCyan);
-  graphics_draw_text(ctx, time_string, lcd_time_font, 
-      GRect( 
-        bounds.origin.x + 2, bounds.origin.y - 2,
-        bounds.size.w, bounds.size.h - 2),
-      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-}
-
-static void date_update_proc(Layer *layer, GContext *ctx) {
-  GRect bounds = layer_get_bounds(layer);
-  graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_context_set_compositing_mode(ctx, GCompOpSet);
-
-  GPoint box_point = grect_center_point(&bounds);
-
-  // Size box to width of wday
-  GSize box_size = graphics_text_layout_get_content_size(
-      date_wday_string, lcd_date_font, bounds,
-      GTextOverflowModeWordWrap, GTextAlignmentCenter);
-  box_size.w += 4; // Padding
-
-  graphics_draw_bitmap_in_rect(ctx, mask, 
-      GRect(box_point.x - box_size.w / 2, bounds.origin.y, box_size.w, bounds.size.h));
-
-  graphics_context_set_text_color(ctx, GColorCyan);
-  graphics_draw_text(ctx, date_wday_string, lcd_date_font,
-      GRect( 
-        bounds.origin.x + 2, bounds.origin.y - 2,
-        bounds.size.w, bounds.size.h),
-      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-
-  graphics_draw_text(ctx, date_mday_string, lcd_date_font,
-      GRect( 
-        bounds.origin.x + 2, bounds.origin.y + 20 - 2,
-        bounds.size.w, bounds.size.h),
-      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-}
 
 static void analog_update_proc(Layer *layer, GContext *ctx) {
   time_t now = time(NULL);
@@ -324,82 +253,111 @@ void analog_destroy(void) {
 }
 
 void tick_handler(struct tm *tick_time, TimeUnits units_changed){
-  if (units_changed & DAY_UNIT) {
-    time_t current_time = time(NULL);
-    struct tm *current_tm = localtime(&current_time);
-    snprintf(date_wday_string, sizeof(date_wday_string), "%s", dname[current_tm->tm_wday]);
-    snprintf(date_mday_string, sizeof(date_mday_string), "%d", current_tm->tm_mday);
-    layer_mark_dirty(date_layer);
-  }
-  clock_copy_time_string(time_string,sizeof(time_string));
-  // Remove the space on the end of the string in AM/PM mode
-  if (strchr(time_string, ' ')) {
-    time_string[strlen(time_string) - 1] = '\0';
-  }
-  layer_mark_dirty(digital_layer);
+  Layer *window_layer = window_get_root_layer(my_window);
+  layer_mark_dirty(window_layer);
 }
 
-static void fireworks_timer(void* data) {
-  if (glancing_state == GLANCING_ACTIVE) {
-    app_timer_register(50, fireworks_timer, data);
-    Firework_Update(render_bitmap);
-    layer_mark_dirty(bitmap_layer_get_layer(render_layer));
-  }
+static void digital_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+    
+  time_t current_time = time(NULL);
+  struct tm *time_tm = localtime(&current_time);
+  char time_string[] = "00:00:00";
+  strftime(time_string, sizeof(time_string), 
+    clock_is_24h_style() ? "%H:%M" : "%I:%M", time_tm);
+  
+  char date_string[] = "DAYNAME";
+  strftime(date_string, sizeof(date_string), "%a", time_tm);
+
+  graphics_context_set_text_color(ctx, GColorCyan);
+  GFont date_font = fonts_get_system_font(FONT_KEY_BITHAM_30_BLACK);
+  graphics_draw_text(ctx, date_string, date_font, GRect(0,30, 180, 32),
+      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+
+  graphics_context_set_text_color(ctx, GColorYellow);
+  GFont time_font = fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD);
+  graphics_draw_text(ctx, time_string, time_font, GRect(0,90, 180, 44),
+      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
 }
 
-static void glancing_callback(GlancingData *data) {
-  glancing_state = data->state;
- 
-  switch (glancing_state) {
-    case GLANCING_ACTIVE:
-      // Start the fireworks animation
-      fireworks_timer(NULL);
-      break;
-    case GLANCING_TIMEDOUT:
-    case GLANCING_INACTIVE:
-    default:
-      // Do nothing, fireworks animation monitors glancing_state
-      break;
-  }
+static void background_layer_update(Layer* layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  GBitmap *bitmap = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_1);
+  graphics_context_set_compositing_mode(ctx, GCompOpSet);
+  graphics_draw_bitmap_in_rect(ctx, bitmap, bounds);
+  gbitmap_destroy(bitmap);
 }
 
+// GBitmap and GContext are opaque types, so provide just enough here to allow
+// offscreen rendering into a bitmap
+typedef struct {
+  uint16_t offset;
+  uint8_t min_x;
+  uint8_t max_x;
+} GBitmapDataRowInfoInternal;
+
+static GBitmapDataRowInfoInternal row_info[180] = {};
+
+typedef struct MyGBitmap {
+  void *addr;
+  uint16_t row_size_bytes;
+  uint16_t info_flags;
+  GRect bounds;
+  GBitmapDataRowInfoInternal *data_row_infos;
+} MyGBitmap;
+
+typedef struct MyGContext {
+  MyGBitmap dest_bitmap;
+} MyGContext;
+
+static void render_layer_update(Layer* layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
+  //backup old dest_bitmap addr
+  uint8_t *orig_addr = gbitmap_get_data((GBitmap*)(&((MyGContext*)ctx)->dest_bitmap));
+  GBitmapFormat orig_format = gbitmap_get_format((GBitmap*)(&((MyGContext*)ctx)->dest_bitmap));
+  GBitmapDataRowInfoInternal *orig_row_info = ((MyGContext*)ctx)->dest_bitmap.data_row_infos;
+
+  //replace screen bitmap with our offscreen render bitmap
+  GBitmap *render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
+  gbitmap_set_data((GBitmap*)(&((MyGContext*)ctx)->dest_bitmap), gbitmap_get_data(render_bitmap),
+    GBitmapFormat8BitCircular, gbitmap_get_bytes_per_row(render_bitmap), false);
+    //gbitmap_get_format(bitmap), gbitmap_get_bytes_per_row(bitmap), false);
+  ((MyGContext*)ctx)->dest_bitmap.data_row_infos = row_info;
+
+  graphics_context_set_compositing_mode(ctx, GCompOpAssign);
+  digital_update_proc(layer, ctx);
+  offscreen_make_transparent(ctx);
+
+  //restore original context bitmap
+  gbitmap_set_data((GBitmap*)(&((MyGContext*)ctx)->dest_bitmap), orig_addr, orig_format, 0, false);
+  ((MyGContext*)ctx)->dest_bitmap.data_row_infos = orig_row_info;
+  
+  //draw the bitmap to the screen
+  graphics_context_set_compositing_mode(ctx, GCompOpSet);
+  graphics_draw_bitmap_in_rect(ctx, render_bitmap, bounds);
+  gbitmap_destroy(render_bitmap);
+}
 
 static void window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
   const GPoint center = grect_center_point(&bounds);
   
-
-  // Setup render layer for fireworks
-  Firework_Initialize(bounds.size.w, bounds.size.h);
-
-  render_layer = bitmap_layer_create(bounds);
-  render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
-  bitmap_layer_set_bitmap(render_layer, render_bitmap);
-  layer_add_child(window_layer, bitmap_layer_get_layer(render_layer));
+  //Load bitmap image
+  background_layer = layer_create(bounds);
+  layer_set_update_proc(background_layer, background_layer_update);
+  layer_add_child(window_layer, background_layer);
 
   custom_font_text = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_TEXT_20));
   custom_font_outline = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_BOXY_OUTLINE_20));
-  mask = gbitmap_create_with_resource(RESOURCE_ID_MASK);
   
-  //Add layers from back to front (background first)
-
-  //Load the lcd font
-  lcd_time_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_LCD_24));
-  lcd_date_font = fonts_load_custom_font(resource_get_handle(RESOURCE_ID_FONT_LCD_20));
-
-  //Setup background layer for digital time display
-  digital_layer = layer_create(GRect(center.x - 32, center.y + 22, 32 * 2, 24));
-  layer_set_update_proc(digital_layer, digital_update_proc);
-  layer_add_child(window_layer, digital_layer);
-
-  //Setup background layer for digital date display
-  date_layer = layer_create(GRect(center.x - 20, center.y - 56, 20 * 2, 40));
-  layer_set_update_proc(date_layer, date_update_proc);
-  layer_add_child(window_layer, date_layer);
-
   //Add analog hands
   analog_init(my_window);
+
+  // Render layer ontop for cool transparency
+  render_layer = layer_create(bounds);
+  layer_set_update_proc(render_layer, render_layer_update);
+  layer_add_child(window_layer, render_layer);
 
   //Force time update
   time_t current_time = time(NULL);
@@ -408,9 +366,6 @@ static void window_load(Window *window) {
 
   //Setup tick time handler
   tick_timer_service_subscribe((MINUTE_UNIT), tick_handler);
-  
-  // Enable Glancing with 40 second timeout, takeover backlight
-  glancing_service_subscribe(40 * 1000, true, glancing_callback);
 }
 
 static void window_unload(Window *window) {
@@ -420,8 +375,15 @@ static void window_unload(Window *window) {
 }
 
 static void init(void) {
+  // Row info for offscreen renderer
+  for (int i = 0; i < 180; i++) {
+    row_info[i].offset = i * 180;
+    row_info[i].min_x = 0;
+    row_info[i].max_x = 180;
+  }
+
   my_window = window_create();
-  window_set_background_color(my_window, GColorBlack);
+  window_set_background_color(my_window, GColorBlue);
   window_set_window_handlers(my_window, (WindowHandlers) {
       .load = window_load,
       .unload = window_unload

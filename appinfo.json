@@ -1,10 +1,10 @@
 {
-  "uuid": "13b4d4d3-4cb3-48c8-a580-7f7827565001",
-  "shortName": "Fireworks",
-  "longName": "Fireworks",
+  "uuid": "fc673fc3-8c54-4aa9-8047-7dbe4d7f7a6b",
+  "shortName": "Offscreen Text",
+  "longName": "Offscreen Text",
   "companyName": "Matthew Hungerford",
   "versionCode": "1",
-  "versionLabel": "1.2",
+  "versionLabel": "0.9",
   "watchapp": {
     "watchface": true
   },
@@ -12,7 +12,7 @@
     "dummy": 0
   },
   "targetPlatforms": [
-    "basalt"
+    "chalk"
   ],
   "resources": {
     "media": [
@@ -29,21 +29,9 @@
         "file": "Boxy_Outline.ttf"
       }, 
       {
-        "type": "font", 
-        "characterRegex": "[ :0-9]", 
-        "name": "FONT_LCD_24", 
-        "file": "LiquidCrystal-Bold.ttf"
-      }, 
-      {
-        "type": "font", 
-        "characterRegex": "[ 0-9MTWFSADEHINORU]", 
-        "name": "FONT_LCD_20", 
-        "file": "LiquidCrystal-Bold.ttf"
-      }, 
-      {
         "type": "png", 
-        "name": "MASK", 
-        "file": "mask_2x2.png"
+        "name": "IMAGE_1", 
+        "file": "colorhex.png"
       }
     ]
   },

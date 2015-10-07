@@ -19,34 +19,6 @@ def configure(ctx):
 def build(ctx):
     ctx.load('pebble_sdk')
 
-    ctx.env.CFLAGS=['-std=c99',
-                    '-mcpu=cortex-m4',
-                    '-march=armv7-m',
-                    '-mthumb',
-                    '-msoft-float',
-                    '-mfloat-abi=soft',
-                    '-ffunction-sections',
-                    '-fdata-sections',
-                    '-fmessage-length=0',
-                    '-fno-strict-aliasing',
-                    '-fomit-frame-pointer',
-                    '-ffast-math',
-                    '-funroll-loops',
-                    '-g',
-                    '-O3',
-                    '-Wall',
-                    '-Wextra',
-                   #'-Werror',
-                    '-Wl,--gc-sections',
-                    '-Wno-unused-parameter',
-                    '-Wno-error=unused-function',
-                    '-Wno-error=unused-variable' ]
-
-
-    ctx.env.CFLAGS.append('-Wa,-mimplicit-it=always')
-    # We are overriding the gcc-arm toolchain include/time.h with our own
-    ctx.env.CFLAGS.append('-D_TIME_H_') # just to check/force our version of time.h
-
     build_worker = os.path.exists('worker_src')
     binaries = []
 

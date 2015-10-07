@@ -288,50 +288,30 @@ static void background_layer_update(Layer* layer, GContext *ctx) {
   gbitmap_destroy(bitmap);
 }
 
-// GBitmap and GContext are opaque types, so provide just enough here to allow
-// offscreen rendering into a bitmap
-typedef struct {
-  uint16_t offset;
-  uint8_t min_x;
-  uint8_t max_x;
-} GBitmapDataRowInfoInternal;
-
-static GBitmapDataRowInfoInternal row_info[180] = {};
-
-typedef struct MyGBitmap {
-  void *addr;
-  uint16_t row_size_bytes;
-  uint16_t info_flags;
-  GRect bounds;
-  GBitmapDataRowInfoInternal *data_row_infos;
-} MyGBitmap;
-
-typedef struct MyGContext {
-  MyGBitmap dest_bitmap;
-} MyGContext;
-
 static void render_layer_update(Layer* layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
-  //backup old dest_bitmap addr
-  uint8_t *orig_addr = gbitmap_get_data((GBitmap*)(&((MyGContext*)ctx)->dest_bitmap));
-  GBitmapFormat orig_format = gbitmap_get_format((GBitmap*)(&((MyGContext*)ctx)->dest_bitmap));
-  GBitmapDataRowInfoInternal *orig_row_info = ((MyGContext*)ctx)->dest_bitmap.data_row_infos;
+  //backup old context data pointer
+  uint8_t *orig_addr = gbitmap_get_data((GBitmap*)ctx);
+  GBitmapFormat orig_format = gbitmap_get_format((GBitmap*)ctx);
+  uint16_t orig_stride = gbitmap_get_bytes_per_row((GBitmap*)ctx);
+
+#if 0 // DP7+
+  GBitmap *render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8BitCircular);
+#else
+  GBitmap *render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
+#endif
 
   //replace screen bitmap with our offscreen render bitmap
-  GBitmap *render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
-  gbitmap_set_data((GBitmap*)(&((MyGContext*)ctx)->dest_bitmap), gbitmap_get_data(render_bitmap),
-    GBitmapFormat8BitCircular, gbitmap_get_bytes_per_row(render_bitmap), false);
-    //gbitmap_get_format(bitmap), gbitmap_get_bytes_per_row(bitmap), false);
-  ((MyGContext*)ctx)->dest_bitmap.data_row_infos = row_info;
+  gbitmap_set_data((GBitmap*)ctx, gbitmap_get_data(render_bitmap),
+    gbitmap_get_format(render_bitmap), gbitmap_get_bytes_per_row(render_bitmap), false);
 
   graphics_context_set_compositing_mode(ctx, GCompOpAssign);
   digital_update_proc(layer, ctx);
   offscreen_make_transparent(ctx);
 
   //restore original context bitmap
-  gbitmap_set_data((GBitmap*)(&((MyGContext*)ctx)->dest_bitmap), orig_addr, orig_format, 0, false);
-  ((MyGContext*)ctx)->dest_bitmap.data_row_infos = orig_row_info;
-  
+  gbitmap_set_data((GBitmap*)ctx, orig_addr, orig_format, orig_stride, false);
+
   //draw the bitmap to the screen
   graphics_context_set_compositing_mode(ctx, GCompOpSet);
   graphics_draw_bitmap_in_rect(ctx, render_bitmap, bounds);
@@ -375,13 +355,6 @@ static void window_unload(Window *window) {
 }
 
 static void init(void) {
-  // Row info for offscreen renderer
-  for (int i = 0; i < 180; i++) {
-    row_info[i].offset = i * 180;
-    row_info[i].min_x = 0;
-    row_info[i].max_x = 180;
-  }
-
   my_window = window_create();
   window_set_background_color(my_window, GColorBlue);
   window_set_window_handlers(my_window, (WindowHandlers) {

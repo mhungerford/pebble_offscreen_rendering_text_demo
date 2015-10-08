@@ -1,7 +1,5 @@
 #include <pebble.h>
 
-#include "offscreen.h"
-
 static Window *my_window;
 
 static Layer *render_layer = NULL;
@@ -288,12 +286,33 @@ static void background_layer_update(Layer* layer, GContext *ctx) {
   gbitmap_destroy(bitmap);
 }
 
+static void bitmap_make_semi_transparent(GBitmap *bitmap) {
+  GRect bounds = gbitmap_get_bounds(bitmap);
+  for (int y = bounds.origin.y; y < bounds.origin.y + bounds.size.h; y++) {
+    GBitmapDataRowInfo row_info = gbitmap_get_data_row_info(bitmap, y);
+    for (int x = row_info.min_x; x < row_info.max_x; x++) {
+      GColor *pixel = (GColor*)&row_info.data[x];
+      if (pixel->a == 0x3) {
+        //pixel->a = ((x%2 + y%2) % 2) ? 0x2 : 0x1;
+        pixel->a = 0x2;
+      }
+    }
+  }
+}
+
 static void render_layer_update(Layer* layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
-  //backup old context data pointer
-  uint8_t *orig_addr = gbitmap_get_data((GBitmap*)ctx);
-  GBitmapFormat orig_format = gbitmap_get_format((GBitmap*)ctx);
-  uint16_t orig_stride = gbitmap_get_bytes_per_row((GBitmap*)ctx);
+
+  // Capture the graphics context framebuffer
+  GBitmap *framebuffer = graphics_capture_frame_buffer(ctx);
+
+  //backup old framebuffer format data
+  uint8_t *orig_addr = gbitmap_get_data(framebuffer);
+  GBitmapFormat orig_format = gbitmap_get_format(framebuffer);
+  uint16_t orig_stride = gbitmap_get_bytes_per_row(framebuffer);
+
+  //Release the framebuffer now that we are free to modify it
+  graphics_release_frame_buffer(ctx, framebuffer);
 
 #if 0 // DP7+
   GBitmap *render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8BitCircular);
@@ -302,18 +321,19 @@ static void render_layer_update(Layer* layer, GContext *ctx) {
 #endif
 
   //replace screen bitmap with our offscreen render bitmap
-  gbitmap_set_data((GBitmap*)ctx, gbitmap_get_data(render_bitmap),
+  gbitmap_set_data(framebuffer, gbitmap_get_data(render_bitmap),
     gbitmap_get_format(render_bitmap), gbitmap_get_bytes_per_row(render_bitmap), false);
 
   graphics_context_set_compositing_mode(ctx, GCompOpAssign);
   digital_update_proc(layer, ctx);
-  offscreen_make_transparent(ctx);
 
   //restore original context bitmap
-  gbitmap_set_data((GBitmap*)ctx, orig_addr, orig_format, orig_stride, false);
+  gbitmap_set_data(framebuffer, orig_addr, orig_format, orig_stride, false);
 
   //draw the bitmap to the screen
   graphics_context_set_compositing_mode(ctx, GCompOpSet);
+  // Make the render_bitmap transparent
+  bitmap_make_semi_transparent(render_bitmap);
   graphics_draw_bitmap_in_rect(ctx, render_bitmap, bounds);
   gbitmap_destroy(render_bitmap);
 }

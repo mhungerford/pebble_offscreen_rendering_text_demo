@@ -314,7 +314,7 @@ static void render_layer_update(Layer* layer, GContext *ctx) {
   //Release the framebuffer now that we are free to modify it
   graphics_release_frame_buffer(ctx, framebuffer);
 
-#if 0 // DP7+
+#if 0 // BUG: Currently not working
   GBitmap *render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8BitCircular);
 #else
   GBitmap *render_bitmap = gbitmap_create_blank(bounds.size, GBitmapFormat8Bit);
